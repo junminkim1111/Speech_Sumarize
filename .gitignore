@@ -1,0 +1,26 @@
+# 파이썬
+__pycache__/
+*.py[cod]
+
+# macOS
+.DS_Store
+
+# 개인 데이터 — 녹음·대본·요약은 올리지 않는다
+*.m4a
+*.ogg
+*.mp3
+*.wav
+*.txt
+*.srt
+*_요약.md
+recordings/
+녹음/
+
+# 키는 홈 디렉터리(~/.gemini_key, ~/.groq_key)에 두므로 여기 있을 일이 없지만
+# 실수로 만들어져도 올라가지 않도록 막는다
+*key*.txt
+.env
+*.pem
+
+# README 는 예외로 포함
+!README.md

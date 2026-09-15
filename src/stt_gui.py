@@ -6,12 +6,14 @@
 """
 
 import queue
+import re
 import subprocess
 import sys
 import tempfile
 import threading
 import time
 import traceback
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -120,6 +122,22 @@ def human_time(sec):
     return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
 
 
+def safe_name(name):
+    """폴더 이름으로 쓸 수 없는 글자를 걷어낸다.
+
+    이름에 / 가 들어가면 하위 폴더가 되어 버리고, 끝의 점과 공백은 맥에서
+    말썽을 일으킨다.
+    """
+    return re.sub(r"[/\\:]", "_", name).strip(" .")
+
+
+def db_text(db):
+    """평균 레벨을 사람이 읽을 수 있게. 완전 무음이면 -inf 로 온다."""
+    if db is None:
+        return "측정 불가"
+    return "무음" if db < R.SILENCE_DB else f"{db:.0f} dB"
+
+
 class App:
     def __init__(self, root):
         self.root = root
@@ -133,6 +151,7 @@ class App:
         self.worker = None
         self.cancel = threading.Event()
         self.made: dict[Path, Path] = {}   # 오디오 → 이번에 만든 대본 경로
+        self._sess = None    # (저장 위치, 이름, 폴더) — 이번에 쓰기로 정한 폴더
 
         self._build()
         self._on_engine()          # 기본 엔진에 맞춰 옵션 상태를 맞춘다
@@ -210,8 +229,23 @@ class App:
         row = ttk.Frame(f2)
         row.pack(fill="x", padx=10, pady=10)
         ttk.Button(row, text="폴더 선택…", command=self.pick_outdir).pack(side="left")
-        self.out_lbl = ttk.Label(row, text="원본 파일과 같은 폴더", foreground="#555")
+        self.out_lbl = ttk.Label(row, text=str(R.default_dir()), foreground="#555")
         self.out_lbl.pack(side="left", padx=10)
+
+        row = ttk.Frame(f2)
+        row.pack(fill="x", padx=10, pady=(0, 4))
+        ttk.Label(row, text="이름").pack(side="left")
+        self.name = tk.StringVar()
+        self.name_entry = ttk.Entry(row, textvariable=self.name)
+        self.name_entry.pack(side="left", fill="x", expand=True, padx=(8, 0))
+        _placeholder(self.name_entry, self.name,
+                     f"{datetime.now():%Y-%m-%d_%H-%M-%S}")
+
+        ttk.Label(f2, foreground="#777",
+                  text="결과는 <저장 위치>/<이름>/ 안에 "
+                       "이름_rec · 이름_transcript · 이름_summary 로 저장됩니다"
+                  ).pack(anchor="w", padx=10, pady=(0, 8))
+        
 
         # 3. 옵션
         f3 = ttk.LabelFrame(self.root, text="3. 받아쓰기 생성")
@@ -361,8 +395,15 @@ class App:
             if not go:
                 return
 
-        dest = self.outdir if self.outdir else None
-        path = R.new_name(dest)
+        dest = self._session_dir()
+        if dest is None:
+            return
+        # 같은 폴더에 다시 녹음하면 앞의 녹음을 덮어쓰지 않도록 번호를 붙인다.
+        path = dest / f"{dest.name}_rec.ogg"
+        k = 2
+        while path.exists():
+            path = dest / f"{dest.name}_{k}_rec.ogg"
+            k += 1
         try:
             self.rec.start(path)
         except Exception as e:
@@ -372,6 +413,7 @@ class App:
 
         self.rec_btn.config(text="■ 녹음 종료")
         self._log(f"녹음 시작 — {path}", "dim")
+        self._lvl_all, self._lvl_win, self._lvl_checked = [], [], False
         self._tick()
 
     def _tick(self):
@@ -379,6 +421,7 @@ class App:
             self.rec_lbl.config(text=f"● 녹음 중  {human_time(self.rec.elapsed)}",
                                 foreground="#c0392b")
             self._rec_tick = self.root.after(500, self._tick)
+            self._check_level()
             return
         # 여기 왔다는 건 ffmpeg 가 스스로 죽었다는 뜻이다.
         # (장치가 빠졌거나 디스크가 찼거나…) 버튼이 '종료' 인 채로 굳어
@@ -390,6 +433,35 @@ class App:
             self.rec._cleanup_log()
             path, self.rec.proc, self.rec.started = self.rec.path, None, None
             self._finish_record(path, interrupted=True, err=err)
+
+    def _check_level(self):
+        """녹음 중 레벨을 지켜본다.
+
+        10초마다 평균을 로그에 남기고, 1분이 지난 시점에 한 번 전체 평균을
+        보고 무음이면 알린다. 끝나고 나서야 알면 그 1분은 이미 날아간 뒤다.
+        """
+        for db in self.rec.levels():
+            self._lvl_all.append(db)
+            self._lvl_win.append(db)
+            if len(self._lvl_win) == 10:
+                self._log(f"  녹음 {len(self._lvl_all)}초 — "
+                          f"평균 {db_text(R.mean_db(self._lvl_win))}", "dim")
+                self._lvl_win = []
+
+        if self._lvl_checked or len(self._lvl_all) < 60:
+            return
+        self._lvl_checked = True          # 판정은 1분 시점에 한 번만
+        avg = R.mean_db(self._lvl_all)
+        if avg is None or avg >= R.SILENCE_DB:
+            return
+        self._log(f"경고: 1분 동안 소리가 잡히지 않았습니다 "
+                  f"(평균 {db_text(avg)})", "err")
+        messagebox.showwarning(
+            "무음 녹음",
+            f"1분 동안 소리가 하나도 잡히지 않았습니다 (평균 {db_text(avg)}).\n\n"
+            "맥의 출력이 BlackHole 로 되어 있는지 확인하세요.\n"
+            "지금 바꾸면 그 뒤부터는 녹음됩니다.\n\n"
+            "녹음은 계속 진행 중입니다.")
 
     def _stop_record(self):
         if self._rec_tick:
@@ -443,11 +515,26 @@ class App:
         self.status.config(text="대기 중")
         if vol is not None and vol < R.SILENCE_DB:
             self._log(f"경고: 녹음이 무음입니다 (평균 {vol:.0f} dB)", "err")
-            messagebox.showwarning(
-                "무음 녹음",
-                f"녹음된 소리가 없습니다 (평균 {vol:.0f} dB).\n\n"
-                "맥의 출력이 BlackHole 로 되어 있는지 확인하고\n"
-                "다시 녹음하세요.")
+            # 무음 파일은 받아쓸 게 없으므로 그 자리에서 치울 수 있게 한다.
+            if messagebox.askyesno(
+                    "무음 녹음",
+                    f"녹음된 소리가 없습니다 (평균 {vol:.0f} dB).\n\n"
+                    "맥의 출력이 BlackHole 로 되어 있는지 확인하고\n"
+                    "다시 녹음하세요.\n\n"
+                    f"이 파일({size})을 지금 휴지통으로 보낼까요?\n"
+                    "완전 삭제가 아니라 되돌릴 수 있습니다.",
+                    default="yes"):
+                try:
+                    move_to_trash(path)
+                except Exception as e:
+                    self._log(f"휴지통으로 옮기지 못했습니다: {e}", "err")
+                else:
+                    if path in self.files:
+                        i = self.files.index(path)
+                        self.listbox.delete(i)
+                        del self.files[i]
+                        self._refresh_count()
+                    self._log(f"{path.name} 을 휴지통으로 보냈습니다", "dim")
         elif vol is not None:
             self._log(f"평균 볼륨 {vol:.0f} dB", "dim")
 
@@ -618,6 +705,52 @@ class App:
                   "(드래그앤드롭은 pip install tkinterdnd2 필요)", "dim")
 
     # ---------------- 실행 ----------------
+    def _name(self):
+        """이름 칸의 값. 안내문이 떠 있으면 빈 값으로 본다."""
+        if getattr(self.name_entry, "_ph", False):
+            return ""
+        return safe_name(self.name.get().strip())
+
+    def _session_dir(self):
+        """결과를 모아 둘 <저장 위치>/<이름>/ 폴더. 없으면 만든다.
+
+        이름이 비면 날짜를 쓴다. 이름과 저장 위치가 그대로면 한 번 정한 폴더를
+        계속 쓴다 — 녹음·받아쓰기·요약이 저마다 물어보면 성가시다.
+        사용자가 취소하면 None 을 돌려준다.
+        """
+        base = self.outdir or R.default_dir()
+        name = self._name() or f"{datetime.now():%Y-%m-%d_%H-%M-%S}"
+        if self._sess and self._sess[:2] == (base, name):
+            return self._sess[2]
+
+        dest = base / name
+        if dest.exists():
+            ans = messagebox.askyesnocancel(
+                "같은 이름의 폴더가 있습니다",
+                f"{dest}\n\n"
+                "이미 있는 폴더입니다.\n\n"
+                "  [예]   그 폴더에 이어서 넣습니다 "
+                "(같은 이름의 파일은 번호를 붙여 피합니다)\n"
+                f"  [아니오]  {name}_2 처럼 새 폴더를 만듭니다\n"
+                "  [취소]  아무것도 하지 않습니다")
+            if ans is None:
+                self._log("취소했습니다.", "dim")
+                return None
+            if not ans:
+                k = 2
+                while (base / f"{name}_{k}").exists():
+                    k += 1
+                dest = base / f"{name}_{k}"
+
+        try:
+            dest.mkdir(parents=True, exist_ok=True)
+        except Exception as e:
+            messagebox.showerror("폴더를 만들지 못했습니다", f"{dest}\n\n{e}")
+            return None
+        self._sess = (base, name, dest)
+        self._log(f"저장 폴더: {dest}", "dim")
+        return dest
+
     def _hint(self):
         """용어 힌트. 안내문이 떠 있으면 빈 값으로 본다."""
         if getattr(self.hint_entry, "_ph", False):
@@ -643,6 +776,10 @@ class App:
                 messagebox.showerror("API 키 오류", str(e))
                 return
 
+        dest = self._session_dir()
+        if dest is None:
+            return
+
         self.cancel.clear()
         self._busy(True)
         self.prog["value"] = 0
@@ -654,7 +791,7 @@ class App:
         args.engine = engine
         args.skip_done = self.skip_done.get()
         self.worker = threading.Thread(
-            target=self._run, args=(key, list(self.files), self.outdir, args),
+            target=self._run, args=(key, list(self.files), dest, args),
             daemon=True)
         self.worker.start()
 
@@ -669,17 +806,19 @@ class App:
             messagebox.showerror("Gemini 키 오류", str(e))
             return
 
+        dest = self._session_dir()
+        if dest is None:
+            return
+
         # (대본, 원본 오디오 or None) 쌍으로 들고 다닌다. 나중에 정리할 때 쓴다.
         targets, missing = [], []
         for f in self.files:
             if f.suffix.lower() == ".txt":
                 targets.append((f, None))
                 continue
-            dest = self.outdir or f.parent
-            cand = dest / (f.stem + ".txt")
-            # 이번 실행에서 만든 대본을 기억해 두면 이름 충돌로 회의_2.txt 로
-            # 저장된 경우에도 올바른 짝을 찾는다.
-            cand = self.made.get(f, cand)
+            # 이번 실행에서 만든 대본을 기억해 두면 이름이 겹쳐 번호가 붙은
+            # 경우에도 올바른 짝을 찾는다. 없으면 오디오 옆도 살펴본다.
+            cand = self.made.get(f) or f.with_suffix(".txt")
             if cand.exists():
                 targets.append((cand, f))
             else:
@@ -701,7 +840,7 @@ class App:
         self.prog["value"] = 0
         self.worker = threading.Thread(
             target=self._run_summary,
-            args=(targets, self.outdir, gkey, read_placeholder(self.extra),
+            args=(targets, dest, gkey, read_placeholder(self.extra),
                   self._hint(), self.fmt.get().lstrip(".")), daemon=True)
         self.worker.start()
 
@@ -722,9 +861,14 @@ class App:
                 md = S.summarize(body, extra=extra, hint=hint, api_key=gkey,
                                  fmt=fmt,
                                  log=lambda m: self.emit("log", (f"    {m}", "dim")))
-                dest = outdir or src.parent
+                dest = outdir
                 dest.mkdir(parents=True, exist_ok=True)
-                mp = dest / (src.stem + "_요약." + fmt)
+                # 대본과 짝이 맞게 이름을 만든다.
+                # 회의A_1_transcript.txt → 회의A_1_summary.md
+                stem = src.stem
+                if stem.endswith("_transcript"):
+                    stem = stem[: -len("_transcript")]
+                mp = dest / f"{stem}_summary.{fmt}"
                 mp.write_text(md, encoding="utf-8")
                 self.emit("log", (f"    ✓ {mp}  ({len(md):,}자)", "ok"))
                 cleanup.append((src, audio))
@@ -755,6 +899,12 @@ class App:
         t0 = time.time()
         used = set()      # 이번 실행에서 이미 쓴 출력 경로
 
+        # 받아쓸 오디오가 여럿이면 이름 뒤에 번호를 붙여 구분한다.
+        # 목록에 섞인 대본(.txt)은 건너뛰므로 번호에서 뺀다.
+        audio = [f for f in files if f.suffix.lower() != ".txt"]
+        single = len(audio) == 1
+        num = {f: k + 1 for k, f in enumerate(audio)}
+
         for i, src in enumerate(files):
             if self.cancel.is_set():
                 self.emit("log", (f"중지됨. {i}개까지 처리했습니다.", "dim"))
@@ -772,25 +922,27 @@ class App:
             self.emit("progress", base)
 
             try:
-                dest = outdir or src.parent
+                dest = outdir
                 dest.mkdir(parents=True, exist_ok=True)
 
-                # 다른 폴더의 같은 이름 파일이 서로를 덮어쓰지 않도록 한다
-                txt = dest / (src.stem + ".txt")
-                if txt in used:
-                    k = 2
-                    while (dest / f"{src.stem}_{k}.txt") in used:
-                        k += 1
-                    txt = dest / f"{src.stem}_{k}.txt"
-                    self.emit("log",
-                              (f"    같은 이름이 있어 {txt.name} 으로 저장합니다", "dim"))
-                used.add(txt)
+                stem = dest.name if single else f"{dest.name}_{num[src]}"
+                txt = dest / f"{stem}_transcript.txt"
 
                 if getattr(args, "skip_done", False) and txt.exists():
                     self.emit("log", (f"    건너뜀 — {txt.name} 이미 있음", "dim"))
                     skipped += 1
                     self.emit("progress", (i + 1) / n * 100)
                     continue
+
+                # 이미 있는 대본(같은 폴더에 이어서 넣는 경우)을 덮어쓰지 않는다
+                k = 2
+                while txt in used or txt.exists():
+                    txt = dest / f"{stem}_{k}_transcript.txt"
+                    k += 1
+                if k > 2:
+                    self.emit("log",
+                              (f"    같은 이름이 있어 {txt.name} 으로 저장합니다", "dim"))
+                used.add(txt)
 
                 if local:
                     body_txt = L.transcribe(
