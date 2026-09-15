@@ -11,6 +11,7 @@ Ogg 는 스트리밍 형식이라 중간에 끊겨도 그 지점까지 그대로
 """
 
 import json
+import math
 import re
 import signal
 import subprocess
@@ -21,6 +22,9 @@ from pathlib import Path
 
 DEVICE_HINT = "blackhole"          # 장치 이름에 이 문자열이 들어가면 BlackHole
 SILENCE_DB = -80.0                 # 이보다 조용하면 무음으로 본다
+
+# 녹음 중 ffmpeg 가 1초마다 stderr 로 뱉는 레벨. 완전 무음이면 -inf 로 나온다.
+RMS_RE = re.compile(rb"lavfi\.astats\.Overall\.RMS_level=(-?[\d.]+|-inf)")
 
 
 def _run(cmd, **kw):
@@ -102,6 +106,18 @@ def measure_volume(path):
     return float(m.group(1)) if m else None
 
 
+def mean_db(levels):
+    """dB 값들의 평균. dB 는 로그 눈금이라 그냥 더하면 안 된다.
+
+    세기(power)로 되돌려 평균을 내고 다시 dB 로 바꾼다. 무음(-inf)은 세기 0 이
+    되므로 자연스럽게 섞인다.
+    """
+    if not levels:
+        return None
+    m = sum(10 ** (db / 10) for db in levels) / len(levels)
+    return 10 * math.log10(m) if m > 0 else float("-inf")
+
+
 def default_dir():
     d = Path.home() / "Documents" / "녹음"
     d.mkdir(parents=True, exist_ok=True)
@@ -121,6 +137,7 @@ class Recorder:
         self.path = None
         self.started = None
         self._log = None       # ffmpeg stderr 를 받아 둘 임시 파일
+        self._log_pos = 0      # 레벨을 어디까지 읽었는지
 
     @property
     def running(self):
@@ -140,15 +157,27 @@ class Recorder:
         path.parent.mkdir(parents=True, exist_ok=True)
 
         cmd = ["ffmpeg", "-y", "-nostats", "-f", "avfoundation", "-i", f":{idx}",
+               "-map", "0:a",
                "-ar", "16000", "-ac", "1", "-c:a", "libopus", "-b:a", "24k",
                # 버퍼에 쌓아두지 말고 바로 파일에 쓴다.
                # 앱이나 맥이 갑자기 죽어도 그 시점까지 남는다.
                "-flush_packets", "1", "-page_duration", "1000000",
-               str(path)]
+               str(path),
+               # 두 번째 출력. 파일로는 아무것도 쓰지 않고 1초치씩 묶어
+               # RMS 레벨만 stderr 로 뱉는다. 녹음 파일로 가는 위쪽 경로는
+               # 건드리지 않으므로 녹음 자체에는 영향이 없다.
+               # ametadata 의 file= 로 쓰면 종료할 때까지 버퍼에 갇혀서
+               # 실시간으로 못 읽는다. 그래서 stderr 로 내보낸다.
+               "-map", "0:a",
+               "-af", ("aresample=16000,asetnsamples=16000,"
+                       "astats=metadata=1:reset=1,"
+                       "ametadata=print:key=lavfi.astats.Overall.RMS_level"),
+               "-f", "null", "-"]
         # stderr 를 PIPE 로 두고 읽지 않으면 버퍼가 차는 순간 ffmpeg 가 멈춘다.
         # 파일로 받아 두면 막히지 않으면서 오류도 확인할 수 있다.
         self._log = tempfile.NamedTemporaryFile(
             mode="w+", suffix=".log", delete=False)
+        self._log_pos = 0
         self.proc = subprocess.Popen(
             cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
             stderr=self._log)
@@ -168,12 +197,37 @@ class Recorder:
             raise RuntimeError(f"녹음을 시작하지 못했습니다.{hint}\n\n{err[-400:]}")
         return path
 
+    def levels(self):
+        """마지막 호출 이후 새로 나온 초당 RMS 레벨(dB). 무음은 -inf.
+
+        로그는 녹음 내내 자라므로 매번 통째로 읽지 않고 읽던 자리에서 잇는다.
+        """
+        if self._log is None:
+            return []
+        try:
+            with open(self._log.name, "rb") as f:
+                f.seek(self._log_pos)
+                chunk = f.read()
+        except Exception:
+            return []
+        # 줄이 끊긴 채로 숫자를 잘라 읽지 않도록 마지막 줄바꿈까지만 쓴다.
+        cut = chunk.rfind(b"\n")
+        if cut < 0:
+            return []
+        self._log_pos += cut + 1
+        return [float(m) for m in RMS_RE.findall(chunk[:cut])]
+
     def _read_log(self):
         try:
             self._log.flush()
-            return Path(self._log.name).read_text(errors="replace")[-800:]
+            text = Path(self._log.name).read_text(errors="replace")
         except Exception:
             return ""
+        # 레벨 측정 때문에 나오는 줄은 오류가 아니다. 걷어내지 않으면
+        # 정작 봐야 할 오류 메시지가 뒤로 밀려난다.
+        keep = [ln for ln in text.splitlines()
+                if not ln.startswith("frame:") and "lavfi.astats" not in ln]
+        return "\n".join(keep)[-800:]
 
     def _cleanup_log(self):
         if self._log is not None:
@@ -183,6 +237,7 @@ class Recorder:
             except Exception:
                 pass
             self._log = None
+        self._log_pos = 0
 
     @property
     def elapsed(self):
