@@ -141,7 +141,7 @@ def db_text(db):
 class App:
     def __init__(self, root):
         self.root = root
-        root.title("녹음 받아쓰기")
+        root.title("Speech Sumarize V1.2.0")
 
         self.files: list[Path] = []
         self.outdir: Path | None = None
