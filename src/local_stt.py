@@ -71,7 +71,11 @@ def transcribe(path, lang="ko", hint="", size=DEFAULT, log=print):
         path_or_hf_repo=repo,
         language=lang,
         initial_prompt=prompt,
-        temperature=0.0,
+        # temperature 를 0.0 하나로 고정하면 Whisper 의 재시도 장치가 꺼진다.
+        # 기본 튜플을 주면, 한 구간의 출력이 지나치게 반복적일 때
+        # (compression_ratio > 2.4) 온도를 올려 그 구간만 다시 디코딩한다.
+        # "입니다 입니다 입니다…" 같은 반복이 이 장치로 걸러진다.
+        temperature=(0.0, 0.2, 0.4, 0.6, 0.8, 1.0),
         verbose=None,
     )
     text = (result.get("text") or "").strip()
