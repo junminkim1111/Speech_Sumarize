@@ -149,7 +149,7 @@ def db_text(db):
 class App:
     def __init__(self, root):
         self.root = root
-        root.title("Speech Sumarize V1.2.1")
+        root.title("Speech Sumarize V1.2.2")
 
         self.files: list[Path] = []
         self.outdir: Path | None = None
@@ -421,10 +421,8 @@ class App:
 
         self.rec_btn.config(text="■ 녹음 종료")
         self._log(f"녹음 시작 — {path}", "dim")
-        self._log("  무음 방지를 위해 dB 레벨을 확인합니다 (1분 뒤 결과 표시)",
-                  "dim")
-        self._lvl_all, self._lvl_win = [], []
-        self._lvl_checked = self._lvl_off = False
+        self._log("  무음 방지를 위해 dB 레벨을 확인합니다 (1분 뒤 결과 표시)", "dim")
+        self._lvl_all, self._lvl_checked = [], False
         self._tick()
 
     def _tick(self):
@@ -448,48 +446,29 @@ class App:
     def _check_level(self):
         """녹음 중 레벨을 지켜본다.
 
-        1분 시점에 전체 평균을 보고 한 번 판정한다. 끝나고 나서야 알면 그 1분은
-        이미 날아간 뒤다.
-
-        소리가 잡히고 있으면 거기서 감시를 끈다. 출력 장치를 잘못 잡는 사고는
-        녹음 시작 시점에 나므로, 1분을 무사히 넘겼으면 더 볼 이유가 없다.
-        무음이면 계속 지켜보다가 소리가 돌아오는 순간에만 알린다.
+        1분 시점에 전체 평균을 한 번 판정하고 감시를 끝낸다. 출력 장치를 잘못
+        잡는 사고는 녹음 시작 시점에 나므로, 끝나고 나서야 알면 늦다.
         """
-        if self._lvl_off:
+        if self._lvl_checked:
             return
 
-        for db in self.rec.levels():
-            self._lvl_all.append(db)
-            if self._lvl_checked:       # 무음 경고 뒤에는 회복만 지켜본다
-                self._lvl_win.append(db)
-
-        if not self._lvl_checked:
-            if len(self._lvl_all) < 60:
-                return
-            self._lvl_checked = True
-            avg = R.mean_db(self._lvl_all)
-            if avg is None or avg >= R.SILENCE_DB:
-                self._log(f"  녹음 정상 진행 중 (1분 평균 {db_text(avg)})", "ok")
-                self._lvl_off = True
-                return
-            self._log(f"경고: 1분 동안 소리가 잡히지 않았습니다 "
-                      f"(평균 {db_text(avg)})", "err")
-            messagebox.showwarning(
-                "무음 녹음",
-                f"1분 동안 소리가 하나도 잡히지 않았습니다 (평균 {db_text(avg)}).\n\n"
-                "맥의 출력이 BlackHole 로 되어 있는지 확인하세요.\n"
-                "지금 바꾸면 그 뒤부터는 녹음됩니다.\n\n"
-                "녹음은 계속 진행 중입니다.")
+        self._lvl_all.extend(self.rec.levels())
+        if len(self._lvl_all) < 60:
             return
 
-        # 무음 경고를 낸 뒤. 10초쯤 모아 보고 소리가 돌아왔으면 알리고 끝낸다.
-        if len(self._lvl_win) < 10:
+        self._lvl_checked = True
+        avg = R.mean_db(self._lvl_all)
+        if avg is None or avg >= R.SILENCE_DB:
+            self._log(f"  녹음 정상 진행 중 (1분 평균 {db_text(avg)})", "ok")
             return
-        avg = R.mean_db(self._lvl_win)
-        self._lvl_win = []
-        if avg is not None and avg >= R.SILENCE_DB:
-            self._log(f"  소리가 잡히기 시작했습니다 (평균 {db_text(avg)})", "ok")
-            self._lvl_off = True
+        self._log(f"경고: 1분 동안 소리가 잡히지 않았습니다 (평균 {db_text(avg)})",
+                  "err")
+        messagebox.showwarning(
+            "무음 녹음",
+            f"1분 동안 소리가 하나도 잡히지 않았습니다 (평균 {db_text(avg)}).\n\n"
+            "맥의 출력이 BlackHole 로 되어 있는지 확인하세요.\n"
+            "지금 바꾸면 그 뒤부터는 녹음됩니다.\n\n"
+            "녹음은 계속 진행 중입니다.")
 
     def _stop_record(self):
         if self._rec_tick:

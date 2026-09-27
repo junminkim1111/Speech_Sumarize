@@ -12,6 +12,8 @@ import sys
 import time
 from pathlib import Path
 
+import prompts as P
+
 # 선호 순서. 앞엣것부터 실제로 되는지 시도한다.
 # 목록에 있어도 "신규 사용자에게는 제공 안 됨"으로 404 가 나는 모델이 있어서,
 # 이름 조회만으로는 부족하고 실제 호출이 성공해야 확정한다.
@@ -22,57 +24,6 @@ MODEL_PREFERENCE = [
     "gemini-3.6-flash",
     "gemini-3.5-flash",
 ]
-
-DEFAULT_PROMPT = """다음은 녹음을 받아쓴 발표자료 대본입니다. 읽기 좋은 정리본으로 만들어 주세요.
-마크다운으로 작성하되, 형식은 내용에 맞게 정하세요. 개념과 흐름이 드러나게 하면 됩니다.
-맨 위에 한두 문장짜리 요약을 두고, 그 아래에 본문을 정리하세요.
-"""
-
-COMMON_RULES = """
-규칙:
-- 한국어로 작성하되, 대본에 영어로 등장한 전문 용어는 영어 표기를 그대로 살립니다.
-- 영어 전문 용어는 절대 변형하지 마세요. 번역하거나 한글로 음차하지 말고,
-  대본에 적힌 영어 철자 그대로 씁니다.
-- 대본에 한글로 음차되어 적힌 영어 용어는 원래의 영어 표기로 되돌려 씁니다.
-  예: "리인포스먼트 러닝" → reinforcement learning, "커버리지" → coverage,
-  "베이스라인" → baseline, "어블레이션" → ablation, "시드" → seed.
-  음차인지 확실하지 않으면 대본 표기를 그대로 둡니다.
-- 분량은 공백 포함 1000자에서 2000자 사이로 맞춥니다.
-- 대본에 없는 내용을 지어내지 마세요.
-- 받아쓰기 오류로 보이는 단어는 문맥에 맞게 보정해서 이해하세요.
-- 서론이나 "요약해 드리겠습니다" 같은 인사말 없이 바로 본문부터 시작하세요.
-- 문장 끝을 ~입니다, ~합니다 대신 ~임, ~함 처럼 축약해서 끝내세요
-"""
-
-PLAIN_RULES = """
-- 마크다운 문법을 쓰지 마세요. #, *, **, `, | 표, 링크 표기를 넣지 않습니다.
-- 제목은 그냥 한 줄로 쓰고 아래에 빈 줄을 둡니다.
-- 목록은 문장 앞에 "- " 만 붙입니다.
-- 표가 필요한 내용은 "항목: 값" 형태의 줄로 풀어 씁니다.
-"""
-
-
-def strip_markdown(text):
-    """평문(.txt)으로 낼 때 남아 있는 마크다운 표기를 걷어낸다."""
-    out = []
-    for line in text.splitlines():
-        if re.fullmatch(r"\s*[-*_]{3,}\s*", line):      # 구분선
-            continue
-        line = re.sub(r"^\s*#{1,6}\s*", "", line)        # 제목
-        line = re.sub(r"^(\s*)[*+]\s+", r"\1- ", line)   # 불릿 통일
-        line = re.sub(r"\*\*(.+?)\*\*", r"\1", line)     # 굵게
-        line = re.sub(r"(?<!\w)\*(?!\s)(.+?)(?<!\s)\*(?!\w)", r"\1", line)
-        line = re.sub(r"`([^`]*)`", r"\1", line)          # 코드
-        line = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", line)  # 링크
-        if re.fullmatch(r"\s*\|[\s:|-]+\|\s*", line):    # 표 구분줄
-            continue
-        if line.strip().startswith("|"):                 # 표 본문
-            cells = [c.strip() for c in line.strip().strip("|").split("|")]
-            line = " · ".join(c for c in cells if c)
-        out.append(line.rstrip())
-    body = "\n".join(out)
-    return re.sub(r"\n{3,}", "\n\n", body).strip()
-
 
 _resolved_model = None
 
@@ -157,14 +108,14 @@ def summarize(text, extra="", model=None, hint="", api_key=None,
         cands = candidate_models(client, model)
     log(f"요약 생성 중… (대본 {len(text):,}자)")
 
-    prompt = DEFAULT_PROMPT + COMMON_RULES
+    prompt = P.SUMMARY_TASK + P.SUMMARY_RULES
     if fmt == "txt":
-        prompt += PLAIN_RULES
+        prompt += P.SUMMARY_PLAIN
     if extra and extra.strip():
-        prompt += f"\n추가 요청:\n{extra.strip()}\n"
+        prompt += P.SUMMARY_EXTRA.format(extra=extra.strip())
     if hint.strip():
-        prompt += f"\n참고 — 이 녹음에 자주 나오는 용어와 고유명사: {hint.strip()}\n"
-    prompt += f"\n---- 대본 시작 ----\n{text}\n---- 대본 끝 ----"
+        prompt += P.SUMMARY_HINT.format(hint=hint.strip())
+    prompt += P.SUMMARY_BODY.format(text=text)
 
     last_err = None
     for cand in cands:
