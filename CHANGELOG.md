@@ -1,5 +1,31 @@
 # 변경 이력
 
+## V1.2.2 — 2026-09-27
+
+### prompts.py
+
+- **새 파일.** 모델에 보내는 지시문 전부를 한곳에 모았다 — Whisper 용어 힌트,
+  Gemini 받아쓰기 지시문, 요약의 기본 지시·고정 규칙·평문 규칙·추가 요청 자리.
+  문구를 바꿀 때 코드를 건드릴 필요가 없다
+- `{hint}`, `{lang}`, `{extra}`, `{text}` 는 실행할 때 채워지는 자리이므로
+  그대로 남겨 두어야 한다
+- 받아쓰기 전용 모델(`gemini-*-transcribe`)은 프롬프트가 아니라
+  `language_codes`·`custom_vocabulary` 같은 API 설정으로 지시하므로
+  여기에 문구가 없다
+
+### summarize.py · gemini_stt.py · local_stt.py
+
+- 프롬프트를 `prompts.py` 에서 가져오도록 변경. 문구 자체는 바뀌지 않았다
+  (옮기기 전후로 지시문 8종을 대조해 동일함을 확인)
+
+### stt_gui.py
+
+- 녹음 레벨 감시 단순화. 무음 경고 뒤 회복을 지켜보던 경로를 없애고,
+  플래그 두 개(`_lvl_checked`, `_lvl_off`)를 하나로 합쳤다.
+  `_check_level` 30줄 → 17줄
+
+---
+
 ## V1.2.1 — 2026-09-27
 
 ### local_stt.py

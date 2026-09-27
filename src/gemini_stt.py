@@ -20,6 +20,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from summarize import load_gemini_key  # noqa: E402
 from transcribe import to_audio  # noqa: E402
+import prompts as P  # noqa: E402
 
 MODEL_PREFERENCE = [
     "gemini-3.5-transcribe",   # 받아쓰기 전용. 전용 설정을 지원한다
@@ -60,15 +61,11 @@ def _vocab(hint):
 
 
 def _prompt(lang, hint):
-    """전용 모델이 아닌 일반 flash 모델용 지시문."""
-    name = {"ko": "한국어", "en": "영어", "ja": "일본어", "zh": "중국어"}.get(lang, lang)
-    p = (f"이 오디오를 {name}로 받아써 주세요.\n"
-         "- 들리는 말을 그대로 옮깁니다. 요약하지 마세요.\n"
-         f"- 주 언어는 {name}이지만 섞여 나오는 영어 용어는 알파벳 표기 그대로 씁니다.\n"
-         "- 문장이 끝나면 문장부호를 넣고 줄을 바꿉니다.\n"
-         "- 받아쓴 내용만 출력하세요.\n")
+    """전용 모델이 아닌 일반 flash 모델용 지시문. 문구는 prompts.py 에 있다."""
+    name = P.LANG_NAMES.get(lang, lang)
+    p = P.GEMINI_TRANSCRIBE.format(lang=name)
     if hint:
-        p += f"\n나오는 용어와 고유명사: {hint}\n"
+        p += P.GEMINI_TRANSCRIBE_HINT.format(hint=hint)
     return p
 
 

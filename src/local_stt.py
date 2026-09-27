@@ -10,6 +10,9 @@ import sys
 import time
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import prompts as P  # noqa: E402
+
 # 큰 것부터. 없으면 자동으로 내려받는다.
 MODELS = {
     "turbo": "mlx-community/whisper-large-v3-turbo",   # 기본. 빠르고 정확
@@ -62,7 +65,7 @@ def transcribe(path, lang="ko", hint="", size=DEFAULT, log=print):
     # 영어 용어가 한글로 음차되는 걸 조금이나마 줄여준다.
     prompt = None
     if hint and hint.strip():
-        prompt = f"다음 용어가 나옵니다: {hint.strip()}"
+        prompt = P.WHISPER_HINT.format(hint=hint.strip())
 
     t0 = time.time()
     log(f"받아쓰는 중… (로컬 {size}, 진행 표시 없음)")
@@ -71,10 +74,8 @@ def transcribe(path, lang="ko", hint="", size=DEFAULT, log=print):
         path_or_hf_repo=repo,
         language=lang,
         initial_prompt=prompt,
-        # temperature 를 0.0 하나로 고정하면 Whisper 의 재시도 장치가 꺼진다.
-        # 기본 튜플을 주면, 한 구간의 출력이 지나치게 반복적일 때
-        # (compression_ratio > 2.4) 온도를 올려 그 구간만 다시 디코딩한다.
-        # "입니다 입니다 입니다…" 같은 반복이 이 장치로 걸러진다.
+        # 스칼라를 주면 기본 튜플이 덮여 재시도가 꺼진다. 반복이 심한 구간을
+        # (compression_ratio > 2.4) 온도를 올려 다시 디코딩하게 두어야 한다.
         temperature=(0.0, 0.2, 0.4, 0.6, 0.8, 1.0),
         verbose=None,
     )
