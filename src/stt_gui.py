@@ -122,6 +122,14 @@ def human_time(sec):
     return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
 
 
+def next_free_dir(base, name):
+    """base/name 이 이미 있으면 "name (1)", "name (2)" … 로 비어 있는 이름을 찾는다."""
+    k = 1
+    while (base / f"{name} ({k})").exists():
+        k += 1
+    return base / f"{name} ({k})"
+
+
 def safe_name(name):
     """폴더 이름으로 쓸 수 없는 글자를 걷어낸다.
 
@@ -141,7 +149,7 @@ def db_text(db):
 class App:
     def __init__(self, root):
         self.root = root
-        root.title("Speech Sumarize V1.2.0")
+        root.title("Speech Sumarize V1.2.1")
 
         self.files: list[Path] = []
         self.outdir: Path | None = None
@@ -395,7 +403,7 @@ class App:
             if not go:
                 return
 
-        dest = self._session_dir()
+        dest = self._session_dir(new=True)
         if dest is None:
             return
         # 같은 폴더에 다시 녹음하면 앞의 녹음을 덮어쓰지 않도록 번호를 붙인다.
@@ -413,7 +421,10 @@ class App:
 
         self.rec_btn.config(text="■ 녹음 종료")
         self._log(f"녹음 시작 — {path}", "dim")
-        self._lvl_all, self._lvl_win, self._lvl_checked = [], [], False
+        self._log("  무음 방지를 위해 dB 레벨을 확인합니다 (1분 뒤 결과 표시)",
+                  "dim")
+        self._lvl_all, self._lvl_win = [], []
+        self._lvl_checked = self._lvl_off = False
         self._tick()
 
     def _tick(self):
@@ -437,31 +448,48 @@ class App:
     def _check_level(self):
         """녹음 중 레벨을 지켜본다.
 
-        10초마다 평균을 로그에 남기고, 1분이 지난 시점에 한 번 전체 평균을
-        보고 무음이면 알린다. 끝나고 나서야 알면 그 1분은 이미 날아간 뒤다.
+        1분 시점에 전체 평균을 보고 한 번 판정한다. 끝나고 나서야 알면 그 1분은
+        이미 날아간 뒤다.
+
+        소리가 잡히고 있으면 거기서 감시를 끈다. 출력 장치를 잘못 잡는 사고는
+        녹음 시작 시점에 나므로, 1분을 무사히 넘겼으면 더 볼 이유가 없다.
+        무음이면 계속 지켜보다가 소리가 돌아오는 순간에만 알린다.
         """
+        if self._lvl_off:
+            return
+
         for db in self.rec.levels():
             self._lvl_all.append(db)
-            self._lvl_win.append(db)
-            if len(self._lvl_win) == 10:
-                self._log(f"  녹음 {len(self._lvl_all)}초 — "
-                          f"평균 {db_text(R.mean_db(self._lvl_win))}", "dim")
-                self._lvl_win = []
+            if self._lvl_checked:       # 무음 경고 뒤에는 회복만 지켜본다
+                self._lvl_win.append(db)
 
-        if self._lvl_checked or len(self._lvl_all) < 60:
+        if not self._lvl_checked:
+            if len(self._lvl_all) < 60:
+                return
+            self._lvl_checked = True
+            avg = R.mean_db(self._lvl_all)
+            if avg is None or avg >= R.SILENCE_DB:
+                self._log(f"  녹음 정상 진행 중 (1분 평균 {db_text(avg)})", "ok")
+                self._lvl_off = True
+                return
+            self._log(f"경고: 1분 동안 소리가 잡히지 않았습니다 "
+                      f"(평균 {db_text(avg)})", "err")
+            messagebox.showwarning(
+                "무음 녹음",
+                f"1분 동안 소리가 하나도 잡히지 않았습니다 (평균 {db_text(avg)}).\n\n"
+                "맥의 출력이 BlackHole 로 되어 있는지 확인하세요.\n"
+                "지금 바꾸면 그 뒤부터는 녹음됩니다.\n\n"
+                "녹음은 계속 진행 중입니다.")
             return
-        self._lvl_checked = True          # 판정은 1분 시점에 한 번만
-        avg = R.mean_db(self._lvl_all)
-        if avg is None or avg >= R.SILENCE_DB:
+
+        # 무음 경고를 낸 뒤. 10초쯤 모아 보고 소리가 돌아왔으면 알리고 끝낸다.
+        if len(self._lvl_win) < 10:
             return
-        self._log(f"경고: 1분 동안 소리가 잡히지 않았습니다 "
-                  f"(평균 {db_text(avg)})", "err")
-        messagebox.showwarning(
-            "무음 녹음",
-            f"1분 동안 소리가 하나도 잡히지 않았습니다 (평균 {db_text(avg)}).\n\n"
-            "맥의 출력이 BlackHole 로 되어 있는지 확인하세요.\n"
-            "지금 바꾸면 그 뒤부터는 녹음됩니다.\n\n"
-            "녹음은 계속 진행 중입니다.")
+        avg = R.mean_db(self._lvl_win)
+        self._lvl_win = []
+        if avg is not None and avg >= R.SILENCE_DB:
+            self._log(f"  소리가 잡히기 시작했습니다 (평균 {db_text(avg)})", "ok")
+            self._lvl_off = True
 
     def _stop_record(self):
         if self._rec_tick:
@@ -711,36 +739,42 @@ class App:
             return ""
         return safe_name(self.name.get().strip())
 
-    def _session_dir(self):
+    def _session_dir(self, new=False):
         """결과를 모아 둘 <저장 위치>/<이름>/ 폴더. 없으면 만든다.
 
-        이름이 비면 날짜를 쓴다. 이름과 저장 위치가 그대로면 한 번 정한 폴더를
-        계속 쓴다 — 녹음·받아쓰기·요약이 저마다 물어보면 성가시다.
-        사용자가 취소하면 None 을 돌려준다.
+        녹음·받아쓰기·요약이 한 폴더에 모이도록, 한 번 정한 폴더를 계속 쓴다.
+        new=True 는 새 녹음을 시작할 때만 준다 — 그때부터 새 폴더가 열린다.
+
+        이름을 비워 두면 날짜를 쓴다. 같은 이름이 이미 있으면 "(1)", "(2)" 를
+        붙여 새로 만든다. 사용자가 이름을 직접 적었고 그 폴더가 이미 있으면
+        이어서 넣을지 물어본다.
         """
         base = self.outdir or R.default_dir()
-        name = self._name() or f"{datetime.now():%Y-%m-%d_%H-%M-%S}"
-        if self._sess and self._sess[:2] == (base, name):
+        typed = self._name()
+        name = typed or f"{datetime.now():%Y-%m-%d}"
+
+        if not new and self._sess and self._sess[:2] == (base, name):
             return self._sess[2]
 
         dest = base / name
         if dest.exists():
-            ans = messagebox.askyesnocancel(
-                "같은 이름의 폴더가 있습니다",
-                f"{dest}\n\n"
-                "이미 있는 폴더입니다.\n\n"
-                "  [예]   그 폴더에 이어서 넣습니다 "
-                "(같은 이름의 파일은 번호를 붙여 피합니다)\n"
-                f"  [아니오]  {name}_2 처럼 새 폴더를 만듭니다\n"
-                "  [취소]  아무것도 하지 않습니다")
-            if ans is None:
-                self._log("취소했습니다.", "dim")
-                return None
-            if not ans:
-                k = 2
-                while (base / f"{name}_{k}").exists():
-                    k += 1
-                dest = base / f"{name}_{k}"
+            if typed and not new:
+                # 직접 적은 이름이면 이어 넣고 싶을 수 있으니 물어본다.
+                ans = messagebox.askyesnocancel(
+                    "같은 이름의 폴더가 있습니다",
+                    f"{dest}\n\n"
+                    "이미 있는 폴더입니다.\n\n"
+                    "  [예]   그 폴더에 이어서 넣습니다 "
+                    "(같은 이름의 파일은 번호를 붙여 피합니다)\n"
+                    f"  [아니오]  {name} (1) 처럼 새 폴더를 만듭니다\n"
+                    "  [취소]  아무것도 하지 않습니다")
+                if ans is None:
+                    self._log("취소했습니다.", "dim")
+                    return None
+                if not ans:
+                    dest = next_free_dir(base, name)
+            else:
+                dest = next_free_dir(base, name)
 
         try:
             dest.mkdir(parents=True, exist_ok=True)
