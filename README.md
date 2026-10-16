@@ -54,8 +54,7 @@ brew install blackhole-16ch
 
 ### 4. API 키
 
-저장소 루트에 `.env` 파일을 만들어 적는다. `.gitignore` 에 올라가 있어
-커밋되지 않는다.
+1. 저장소 루트에 `.env` 파일을 만든다. 
 
 ```bash
 cd ~/Desktop/py/stt
@@ -66,13 +65,15 @@ EOF
 chmod 600 .env
 ```
 
+2. 발급받은 키에 각 API키를 적는다. (Groq 키는 Local 모델을 쓴다면 optional)
+
 | 키 | 발급 | 필요한 곳 |
 |---|---|---|
 | `GEMINI_API_KEY` | `aistudio.google.com` (카드 등록 불필요) | 요약, Gemini 받아쓰기 |
 | `GROQ_API_KEY` | `console.groq.com` | `Whisper` 엔진에서만 |
 
-요약에는 Gemini 키가 반드시 필요하다. 받아쓰기를 `Whisper(local)` 로만 한다면
-Groq 키는 없어도 된다. 같은 이름의 환경변수가 이미 설정돼 있으면 그쪽이 우선이다.
+요약을 위해서 Gemini 키가 반드시 필요하다. 
+
 
 ### 5. 확인
 
@@ -87,7 +88,7 @@ python3 ~/Desktop/py/stt/src/check_key.py
 
 ## 실행
 
-바탕화면의 **SpeechSumarize.command** 를 더블클릭하거나:
+폴더 내부의 **SpeechSumarize.command** 를 더블클릭하거나:
 
 ```bash
 python3 ~/Desktop/py/stt/src/stt_gui.py
@@ -171,7 +172,7 @@ python3 ~/Desktop/py/stt/src/stt_gui.py
 
 ---
 
-## 용어 힌트 — 가장 중요한 설정
+## 용어 힌트 (Optional)
 
 **3. 받아쓰기 생성**의 용어 힌트 칸에 자주 나오는 영어 용어를 쉼표로 적는다.
 
