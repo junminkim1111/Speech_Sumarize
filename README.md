@@ -54,10 +54,12 @@ brew install blackhole-16ch
 
 ### 4. API 키
 
-1. 저장소 루트에 `.env` 파일을 만든다. 
+**주의** - .env파일이 노출되지 않도록 주의하십시오.
+
+1. 저장소 루트에 `.env` 파일을 만든다. 혹은 아래 명령어 실행.
 
 ```bash
-cd ~/Desktop/py/stt
+cd Speech_Sumarize      # 내려받은 저장소 폴더
 cat > .env << 'EOF'
 GEMINI_API_KEY=발급받은키
 GROQ_API_KEY=발급받은키
@@ -65,7 +67,7 @@ EOF
 chmod 600 .env
 ```
 
-2. 발급받은 키에 각 API키를 적는다. (Groq 키는 Local 모델을 쓴다면 optional)
+2. '발급받은키'에 각 사이트에서 발급받은 API키를 적는다. (Groq 키는 Local 모델을 쓴다면 optional)
 
 | 키 | 발급 | 필요한 곳 |
 |---|---|---|
@@ -95,6 +97,10 @@ python3 ~/Desktop/py/stt/src/stt_gui.py
 ```
 
 ![메인 화면](docs/main.png)
+
+받아쓰기가 도는 중. 상태 줄과 로그로 진행 상황이 보인다.
+
+![실행 중](docs/running.png)
 
 위에서 아래로 한 번씩 거치면 끝난다. 녹음 → 받아쓰기 → 요약이 모두 같은
 폴더에 저장된다.
