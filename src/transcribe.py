@@ -7,7 +7,7 @@
     python transcribe.py *.mp3 --srt           # 자막 파일도 같이
     python transcribe.py 회의.wav --prompt "RLPD, LIBERO, offline RL"
 
-API 키는 환경변수 GROQ_API_KEY 또는 ~/.groq_key 파일에서 읽는다.
+API 키는 저장소 루트의 .env 또는 환경변수에서 읽는다 (환경변수가 우선).
 """
 
 import argparse
@@ -25,18 +25,35 @@ AUDIO_EXTS = {".mp3", ".m4a", ".wav", ".flac", ".ogg", ".opus", ".webm",
               ".mp4", ".mov", ".mkv", ".aac", ".wma", ".amr"}
 
 
-def load_api_key():
-    key = os.environ.get("GROQ_API_KEY")
+ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
+
+
+def load_env():
+    """저장소 루트의 .env 를 환경변수로 올린다. 이미 설정된 값은 건드리지 않는다."""
+    if not ENV_FILE.exists():
+        return
+    for line in ENV_FILE.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        name, value = line.split("=", 1)
+        os.environ.setdefault(name.strip(), value.strip().strip("\"'"))
+
+
+def load_key(name, how):
+    """환경변수 또는 .env 에서 API 키를 읽는다. how = 없을 때 띄울 안내."""
+    load_env()
+    key = (os.environ.get(name) or "").strip()
     if key:
-        return key.strip()
-    keyfile = Path.home() / ".groq_key"
-    if keyfile.exists():
-        return keyfile.read_text().strip()
-    raise RuntimeError(
-        "GROQ_API_KEY 가 없습니다.\n"
-        "export GROQ_API_KEY=... 를 ~/.zshrc 에 추가하거나\n"
-        "키를 ~/.groq_key 파일에 저장하세요."
-    )
+        return key
+    raise RuntimeError(f"{name} 가 없습니다.\n{how}\n"
+                       f".env 파일 위치: {ENV_FILE}")
+
+
+def load_api_key():
+    return load_key("GROQ_API_KEY",
+                    "console.groq.com 에서 발급받아 .env 에 "
+                    "GROQ_API_KEY=... 로 적으세요.")
 
 
 def have_ffmpeg():

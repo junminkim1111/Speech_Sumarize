@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 
 def inspect(name, key, prefix, expect_len):
-    src = f"환경변수 {name}" if os.environ.get(name) else f"~/.{name.split('_')[0].lower()}_key 파일"
+    src = f"{name} (.env 또는 환경변수)"
     print(f"  출처    : {src}")
     print(f"  길이    : {len(key)}자" + (f" (보통 {'/'.join(map(str, expect_len))}자)" if expect_len else ""))
     print(f"  미리보기: {key[:6]}{'*' * 10}{key[-4:]}")

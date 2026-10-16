@@ -29,18 +29,10 @@ _resolved_model = None
 
 
 def load_gemini_key():
-    import os
-    key = os.environ.get("GEMINI_API_KEY")
-    if key:
-        return key.strip()
-    keyfile = Path.home() / ".gemini_key"
-    if keyfile.exists():
-        return keyfile.read_text().strip()
-    raise RuntimeError(
-        "Gemini API 키가 없습니다.\n"
-        "aistudio.google.com 에서 발급받아 ~/.gemini_key 에 저장하거나\n"
-        "GEMINI_API_KEY 환경변수로 설정하세요."
-    )
+    from transcribe import load_key
+    return load_key("GEMINI_API_KEY",
+                    "aistudio.google.com 에서 발급받아 .env 에 "
+                    "GEMINI_API_KEY=... 로 적으세요.")
 
 
 def _version_key(name):

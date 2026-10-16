@@ -31,14 +31,14 @@ brew install ffmpeg
 ### 2. 파이썬 패키지
 
 ```bash
-/opt/anaconda3/bin/python3 -m pip install groq google-genai mlx-whisper tkinterdnd2
+python3 -m pip install groq google-genai mlx-whisper tkinterdnd2
 ```
 
 | 패키지 | 용도 | 없으면 |
 |---|---|---|
 | `google-genai` | Gemini 받아쓰기·요약 | 요약 불가 |
 | `mlx-whisper` | Whisper(local) 받아쓰기 | Whisper(local) 엔진 비활성 (Apple Silicon 전용) |
-| `groq` | Groq 받아쓰기 | Groq 엔진 불가 |
+| `groq` | Groq 받아쓰기 | Whisper 엔진 불가 |
 | `tkinterdnd2` | 드래그 앤 드롭 | 버튼으로만 파일 추가 |
 
 Whisper(local) 엔진은 첫 실행 때 모델을 자동으로 내려받는다(turbo 기준 약 1.5GB,
@@ -52,32 +52,29 @@ Whisper(local) 엔진은 첫 실행 때 모델을 자동으로 내려받는다(t
 brew install blackhole-16ch
 ```
 
----
+### 4. API 키
 
-## API 키 설정
-
-요약에는 Gemini 키가 반드시 필요하다. 받아쓰기를 `Whisper(local)` 로만 한다면 Groq 키는
-없어도 된다.
-
-### Gemini (요약, 그리고 Gemini 받아쓰기)
-
-1. `aistudio.google.com` 에서 키 발급 (카드 등록 불필요)
-2. 아래를 **직접 터미널에 입력**한다. 키가 셸 기록에 남지 않는다.
+저장소 루트에 `.env` 파일을 만들어 적는다. `.gitignore` 에 올라가 있어
+커밋되지 않는다.
 
 ```bash
-read -rs GEMINI_KEY && printf '%s\n' "$GEMINI_KEY" > ~/.gemini_key && chmod 600 ~/.gemini_key && unset GEMINI_KEY && echo "저장 완료"
+cd ~/Desktop/py/stt
+cat > .env << 'EOF'
+GEMINI_API_KEY=발급받은키
+GROQ_API_KEY=발급받은키
+EOF
+chmod 600 .env
 ```
 
-엔터를 누르면 커서만 깜빡인다. 거기에 키를 붙여넣고 다시 엔터.
+| 키 | 발급 | 필요한 곳 |
+|---|---|---|
+| `GEMINI_API_KEY` | `aistudio.google.com` (카드 등록 불필요) | 요약, Gemini 받아쓰기 |
+| `GROQ_API_KEY` | `console.groq.com` | `Whisper` 엔진에서만 |
 
-### Groq (선택)
+요약에는 Gemini 키가 반드시 필요하다. 받아쓰기를 `Whisper(local)` 로만 한다면
+Groq 키는 없어도 된다. 같은 이름의 환경변수가 이미 설정돼 있으면 그쪽이 우선이다.
 
-`console.groq.com` 에서 발급 후 같은 방식으로 `~/.groq_key` 에 저장한다.
-
-두 키 모두 환경변수(`GEMINI_API_KEY`, `GROQ_API_KEY`)로 줘도 된다.
-파일보다 환경변수가 우선한다.
-
-### 키 확인
+### 5. 확인
 
 ```bash
 python3 ~/Desktop/py/stt/src/check_key.py
@@ -90,11 +87,16 @@ python3 ~/Desktop/py/stt/src/check_key.py
 
 ## 실행
 
-폴더 내의 **SpeechSumarize.command** 를 더블클릭하거나:
+바탕화면의 **SpeechSumarize.command** 를 더블클릭하거나:
 
 ```bash
 python3 ~/Desktop/py/stt/src/stt_gui.py
 ```
+
+![메인 화면](docs/main.png)
+
+위에서 아래로 한 번씩 거치면 끝난다. 녹음 → 받아쓰기 → 요약이 모두 같은
+폴더에 저장된다.
 
 ### 화면 구성
 
@@ -360,7 +362,9 @@ Apple Silicon 전용이다. 첫 실행 때 모델 1.5GB 를 내려받는 동안 
 stt/
 ├── SpeechSumarize.command   더블클릭 실행용 런처
 ├── README.md
+├── CHANGELOG.md
 ├── .gitignore
+├── .env                     API 키 (직접 만든다, 커밋되지 않음)
 └── src/                     파이썬 소스
 ```
 
@@ -370,8 +374,10 @@ stt/
 | [recorder.py](src/recorder.py) | BlackHole 녹음 |
 | [local_stt.py](src/local_stt.py) | Whisper(local) 받아쓰기 (mlx-whisper) |
 | [gemini_stt.py](src/gemini_stt.py) | Gemini 받아쓰기 |
-| [transcribe.py](src/transcribe.py) | Groq 받아쓰기 + 오디오 변환 공용 함수 |
-| [summarize.py](src/summarize.py) | Gemini 요약, 프롬프트 규칙 |
+| [transcribe.py](src/transcribe.py) | Groq 받아쓰기, 오디오 변환, `.env` 키 로더 |
+| [summarize.py](src/summarize.py) | Gemini 요약 |
+| [prompts.py](src/prompts.py) | 모델에 보내는 지시문 전부. 문구는 여기서 고친다 |
 | [check_key.py](src/check_key.py) | API 키 점검 |
+| [test_env.py](src/test_env.py) | `.env` 파서 검사 |
 
 
