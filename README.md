@@ -80,7 +80,7 @@ chmod 600 .env
 ### 5. 확인
 
 ```bash
-python3 ~/Desktop/py/stt/src/check_key.py
+python3 src/check_key.py
 ```
 
 키 값은 앞뒤 몇 글자만 가려서 보여주고, 실제로 서버에 호출해 작동 여부까지
@@ -93,7 +93,7 @@ python3 ~/Desktop/py/stt/src/check_key.py
 폴더 내부의 **SpeechSumarize.command** 를 더블클릭하거나:
 
 ```bash
-python3 ~/Desktop/py/stt/src/stt_gui.py
+python3 src/stt_gui.py
 ```
 
 ![메인 화면](docs/main.png)
@@ -284,29 +284,31 @@ Whisper 의 `initial_prompt` 로 넘어간다. 요약할 때 고유명사 표기
 
 ## 터미널에서 쓰기
 
+아래 명령은 모두 저장소 루트에서 실행한다.
+
 GUI 없이 각 단계를 따로 돌릴 수 있다.
 
 ```bash
 # Whisper(local) 받아쓰기
-python3 ~/Desktop/py/stt/src/local_stt.py 회의.m4a --hint "RLPD, coverage"
+python3 src/local_stt.py 회의.m4a --hint "RLPD, coverage"
 
 # Gemini 받아쓰기
-python3 ~/Desktop/py/stt/src/gemini_stt.py 회의.m4a --hint "RLPD, coverage"
+python3 src/gemini_stt.py 회의.m4a --hint "RLPD, coverage"
 
 # Groq 받아쓰기 (+ 이어서 요약)
-python3 ~/Desktop/py/stt/src/transcribe.py 회의.m4a --summarize --format txt
+python3 src/transcribe.py 회의.m4a --summarize --format txt
 
 # 이미 있는 대본 요약
-python3 ~/Desktop/py/stt/src/summarize.py 대본.txt --extra "할 일만 체크리스트로"
+python3 src/summarize.py 대본.txt --extra "할 일만 체크리스트로"
 
 # 폴더 통째로
-python3 ~/Desktop/py/stt/src/local_stt.py ~/Desktop/recordings
+python3 src/local_stt.py ~/Desktop/recordings   # 폴더 경로는 그대로
 
 # 녹음 장치 상태 확인 (3초 녹음 후 볼륨 측정)
-python3 ~/Desktop/py/stt/src/recorder.py 3
+python3 src/recorder.py 3
 
 # 쓸 수 있는 Gemini 모델 목록
-python3 ~/Desktop/py/stt/src/summarize.py --list-models .
+python3 src/summarize.py --list-models .
 ```
 
 주요 옵션: `--lang`(기본 ko) · `--hint` · `--out` · `--format {md,txt}` ·
@@ -344,7 +346,7 @@ Gemini 사용량이 요약분만 남아 크게 줄어든다.
 소리가 잡힌다. 장치 상태만 따로 확인하려면:
 
 ```bash
-python3 ~/Desktop/py/stt/src/recorder.py 3
+python3 src/recorder.py 3
 ```
 
 ### 영어 용어가 자꾸 한글로 나온다
