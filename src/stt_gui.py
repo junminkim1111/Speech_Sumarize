@@ -249,7 +249,7 @@ class App:
         self.name_entry = ttk.Entry(row, textvariable=self.name)
         self.name_entry.pack(side="left", fill="x", expand=True, padx=(8, 0))
         _placeholder(self.name_entry, self.name,
-                     f"{datetime.now():%Y-%m-%d_%H-%M-%S}")
+                     f"{datetime.now():%Y-%m-%d}")
 
         ttk.Label(f2, foreground="#777",
                   text="결과는 <저장 위치>/<이름>/ 안에 "
