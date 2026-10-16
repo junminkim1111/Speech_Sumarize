@@ -38,6 +38,8 @@ import recorder as R  # noqa: E402
 # 오디오 + 이미 받아쓴 대본(.txt) 을 목록에 받는다.
 ACCEPTED = T.AUDIO_EXTS | {".txt"}
 
+VERSION = "1.2.2"
+
 # 엔진 이름. 비교에 쓰는 문자열이라 상수로 둔다.
 # Whisper 는 Groq API 로, Whisper(local) 은 mlx-whisper 로 돌린다.
 ENG_GEMINI = "Gemini"
@@ -149,7 +151,7 @@ def db_text(db):
 class App:
     def __init__(self, root):
         self.root = root
-        root.title("Speech Sumarize V1.2.2")
+        root.title(f"Speech Sumarize V{VERSION}")
 
         self.files: list[Path] = []
         self.outdir: Path | None = None
